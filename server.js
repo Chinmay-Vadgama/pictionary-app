@@ -37,26 +37,27 @@ const clean = (s, n) => String(s || '').replace(/[<>]/g, '').trim().slice(0, n);
 
 function pub(r) {
   io.to(r.code).emit('state', {
-    code: r.code, state: r.state, host: r.host, max: MAX, diff: r.diff,
+    code: r.code, state: r.state, host: r.host, max: MAX, diff: r.diff, words: r.words,
     players: Object.entries(r.players).map(([id, p]) => ({ id, name: p.name, score: p.score }))
   });
 }
 function startGame(r) {
   Object.values(r.players).forEach(p => p.score = 0);
-  r.lvl = 'easy'; r.queue = Object.keys(r.players);          // everyone draws once
+  r.lvl = 'easy'; r.turn = 0; r.used = new Set(); Object.values(r.players).forEach(p => p.drawn = 0);
   nextTurn(r);
 }
 function nextTurn(r) {
-  while (r.queue.length && !r.players[r.queue[0]]) r.queue.shift();
-  if (!r.queue.length) return endGame(r);
-  r.drawer = r.queue.shift();
+  const ids = Object.keys(r.players);
+  if (!ids.length || r.turn >= r.words) return endGame(r);       // played all N words -> winner
+  r.drawer = ids.reduce((b, id) => (r.players[id].drawn || 0) < (r.players[b].drawn || 0) ? id : b, ids[0]);
+  r.players[r.drawer].drawn = (r.players[r.drawer].drawn || 0) + 1; r.turn++;
   const pk = pickWord(r); r.word = pk.w; r.curDiff = pk.lvl; r.shown = new Set();
   r.guessed = new Set(); r.fr = []; r.strokes = []; r.state = 'drawing';
   r.end = Date.now() + DRAW_SECS * 1000;
   clearTimeout(r.timer); r.timer = setTimeout(() => endTurn(r), DRAW_SECS * 1000);
   scheduleHints(r);
   pub(r);
-  io.to(r.code).emit('turn', { drawer: r.drawer, hint: pattern(r), lvl: r.curDiff, ms: DRAW_SECS * 1000, left: r.queue.length });
+  io.to(r.code).emit('turn', { drawer: r.drawer, hint: pattern(r), lvl: r.curDiff, ms: DRAW_SECS * 1000, no: r.turn, total: r.words });
   io.to(r.drawer).emit('word', r.word);
 }
 // Adaptive difficulty: blend of "how many guessed" (60%) and "how fast" (40%) -> move one level up/down
@@ -89,19 +90,23 @@ io.on('connection', s => {
     const name = clean(d.name, 16) || 'Player';
     if (check(name)) return cb({ error: 'Please pick a kid-friendly name (no bad words, links or phone numbers).' });
     const code = clean(d.code, 4).toUpperCase() || code4();
-    const r = rooms[code] || (rooms[code] = { code, players: {}, host: s.id, state: 'lobby', queue: [], strokes: [], diff: 'adaptive', lvl: 'easy', used: new Set(), hintT: [] });
+    const r = rooms[code] || (rooms[code] = { code, players: {}, host: s.id, state: 'lobby', queue: [], words: 10, turn: 0, strokes: [], diff: 'adaptive', lvl: 'easy', used: new Set(), hintT: [] });
     if (Object.keys(r.players).length >= MAX) return cb({ error: `Room is full (max ${MAX} players).` });
     r.players[s.id] = { name, score: 0 }; s.join(code); s.data.code = code;
     cb({ ok: true, id: s.id, code });
     pub(r);
     if (r.state === 'drawing') {
-      s.emit('turn', { drawer: r.drawer, hint: pattern(r), lvl: r.curDiff, ms: r.end - Date.now(), left: r.queue.length });
+      s.emit('turn', { drawer: r.drawer, hint: pattern(r), lvl: r.curDiff, ms: r.end - Date.now(), no: r.turn, total: r.words });
       s.emit('replay', r.strokes);
     }
   });
   s.on('setDiff', d => {
     const r = rooms[s.data.code];
     if (r && r.host === s.id && ['lobby', 'over'].includes(r.state) && (d === 'mixed' || LEVELS[d])) { r.diff = d; pub(r); }
+  });
+  s.on('setWords', n => {
+    const r = rooms[s.data.code], v = Math.round(Number(n));
+    if (r && r.host === s.id && ['lobby', 'over'].includes(r.state) && v >= 1 && v <= 50) { r.words = v; pub(r); }
   });
   s.on('start', () => {
     const r = rooms[s.data.code];
@@ -161,4 +166,4 @@ io.on('connection', s => {
   });
 });
 
-srv.listen(process.env.PORT || 3002, () => console.log('Running on', process.env.PORT || 3002));
+srv.listen(process.env.PORT || 3000, () => console.log('Running on', process.env.PORT || 3000));

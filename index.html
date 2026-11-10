@@ -40,9 +40,10 @@ canvas{width:100%;aspect-ratio:4/3;background:#fff;border-radius:10px;border:2px
 <div id="game">
  <div class="card"><h2 style="font-size:18px">Room <span id="rc"></span></h2><small id="cnt"></small><div id="players"></div>
   <label style="display:block;margin-top:8px;font-size:14px">Word difficulty<select id="diff" style="width:100%"><option value="adaptive">Adaptive (auto)</option><option value="mixed">Mixed</option><option value="easy">Easy</option><option value="medium">Medium (×1.25 pts)</option><option value="hard">Hard (×1.5 pts)</option></select></label>
+  <label style="display:block;margin-top:8px;font-size:14px">Words per game (1–50)<input type="number" id="words" min="1" max="50" value="10" style="width:100%"></label>
   <button class="p" id="start" style="width:100%;margin-top:8px">Start game</button>
   <div class="ad" id="ad-side"><!-- AdSense <ins class="adsbygoogle" style="display:block" data-ad-client="ca-pub-XXXXXXXXXXXXXXXX" data-ad-slot="0000000000" data-ad-format="auto"></ins> -->Ad slot</div></div>
- <div class="card"><div id="bar"><div id="hint" style="font:800 24px 'Bricolage Grotesque';letter-spacing:4px"></div><div id="timer"></div></div>
+ <div class="card"><div id="bar"><div id="hint" style="font:800 24px 'Bricolage Grotesque';letter-spacing:4px"></div><div id="rnd" style="font-size:14px;margin-left:auto"></div><div id="timer"></div></div>
   <canvas id="cv" width="800" height="600"></canvas>
   <div id="tools"></div></div>
  <div class="card"><div id="chat"></div><input id="msg" placeholder="Type your guess…" maxlength="60" style="width:100%"></div>
@@ -108,17 +109,17 @@ const refreshTools=()=>T.style.visibility=canDraw()?'visible':'hidden';refreshTo
 document.addEventListener('keydown',e=>{if(e.ctrlKey&&e.key==='z'&&e.target.tagName!=='INPUT'){e.preventDefault();live()?s.emit('undo'):practice()&&undoLocal()}});
 $('go').onclick=()=>s.emit('join',{name:$('name').value,code:$('code').value},r=>{
  if(r.error)return $('err').textContent=r.error;me=r.id;$('rc').textContent=r.code;$('join').style.display='none';$('game').style.display='grid'});
-$('start').onclick=()=>s.emit('start');$('diff').onchange=e=>s.emit('setDiff',e.target.value);$('again').onclick=()=>s.emit('again');
+$('start').onclick=()=>s.emit('start');$('diff').onchange=e=>s.emit('setDiff',e.target.value);$('words').onchange=e=>s.emit('setWords',e.target.value);$('again').onclick=()=>s.emit('again');
 $('msg').onkeydown=e=>{if(e.key==='Enter'&&e.target.value.trim()){s.emit('chat',e.target.value);e.target.value=''}};
 function log(t,c){const d=document.createElement('div');d.className=c||'';d.textContent=t;$('chat').append(d);$('chat').scrollTop=1e9}
 s.on('state',x=>{st=x;$('cnt').textContent=` ${x.players.length}/${x.max} players`;
  $('players').innerHTML='';x.players.slice().sort((a,b)=>b.score-a.score).forEach(p=>{const d=document.createElement('div');
   d.className=(p.id===me?'me ':'')+(p.id===drawer&&x.state==='drawing'?'dr':'');d.innerHTML='<span></span><b>'+p.score+'</b>';d.firstChild.textContent=p.name;$('players').append(d)});
- $('diff').value=x.diff;$('diff').disabled=!(x.host===me&&['lobby','over'].includes(x.state));
+ $('diff').value=x.diff;if(document.activeElement!==$('words'))$('words').value=x.words;$('words').disabled=!(x.host===me&&['lobby','over'].includes(x.state));$('diff').disabled=!(x.host===me&&['lobby','over'].includes(x.state));
  $('start').style.display=x.host===me&&['lobby','over'].includes(x.state)?'block':'none';
  $('start').disabled=false;$('start').textContent=x.players.length<2?'Solo test (1 player)':'Start game';
  refreshTools();if(x.state==='lobby')$('hint').textContent='Practice board (only you see it)'});
-s.on('turn',t=>{drawer=t.drawer;endAt=Date.now()+t.ms;resetBoard();refreshTools();$('over').style.display='none';word='';
+s.on('turn',t=>{drawer=t.drawer;endAt=Date.now()+t.ms;resetBoard();refreshTools();$('rnd').textContent='Word '+t.no+' / '+t.total;$('over').style.display='none';word='';
  $('hint').textContent=t.drawer===me?'':t.hint;log((t.drawer===me?'Your turn to draw!':'New round – start guessing!')+' ['+t.lvl+' word]','s')});
 s.on('hint',h=>{if(drawer!==me){$('hint').textContent=h;log('Hint: a letter was revealed','s')}});
 s.on('word',w=>{word=w;$('hint').textContent='Draw: '+w.toUpperCase()});
@@ -126,7 +127,7 @@ s.on('turnEnd',x=>{endAt=0;$('hint').textContent='It was: '+x.word;log('Word was
 s.on('draw',o=>{ops.push(o);drawOp(o)});s.on('clear',resetBoard);s.on('undo',undoLocal);s.on('replay',a=>{ops=a.slice();redraw()});
 s.on('chat',m=>m.sys?log(m.text,'s'):log(m.name+': '+m.text,m.priv?'pv':''));
 s.on('notice',m=>log(m,'pv'));
-s.on('lobby',()=>{$('over').style.display='none';resetBoard();$('hint').textContent='Practice board';refreshTools();log('Back in the lobby – scores reset.','s')});
+s.on('lobby',()=>{$('over').style.display='none';resetBoard();$('hint').textContent='Practice board';refreshTools();$('rnd').textContent='';log('Back in the lobby – scores reset.','s')});
 s.on('gameOver',r=>{$('win').textContent=r[0].name;$('rank').innerHTML='';r.forEach(p=>{const l=document.createElement('li');l.textContent=p.name+' – '+p.score;$('rank').append(l)});
  $('again').style.display=st&&st.host===me?'inline-block':'none';$('over').style.display='grid'});
 setInterval(()=>{$('timer').textContent=endAt?Math.max(0,Math.ceil((endAt-Date.now())/1000)):''},250);

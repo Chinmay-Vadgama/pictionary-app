@@ -1,0 +1,13 @@
+# Render Blueprint: push this repo to GitHub, then Render > New > Blueprint > pick the repo.
+services:
+  - type: web
+    name: sketchmob
+    runtime: node
+    plan: free
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /
+    autoDeploy: true
+    envVars:
+      - key: NODE_VERSION
+        value: "20"

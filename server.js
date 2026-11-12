@@ -8,7 +8,9 @@ app.get('/', (req, res) => PUB ? res.sendFile(path.join(PUB, 'index.html')) : re
 
 const MAX = 10, DRAW_SECS = 80, GAP_MS = 4000;
 const LEVELS = require('./words');
-const { check } = require('./filter');
+const { check, pii } = require('./filter');
+const { log, clientInfo, cleanTel, newSid, DIR } = require('./logger');
+const blocked = t => process.env.RELAXED_FILTER === '1' ? pii(t) : check(t);   // RELAXED_FILTER=1 allows adult language
 const ORDER = ['easy', 'medium', 'hard'];
 const MULT = { easy: 1, medium: 1.25, hard: 1.5 };   // score multiplier per difficulty
 function pickWord(r) {
@@ -42,6 +44,7 @@ function pub(r) {
   });
 }
 function startGame(r) {
+  log('game_start', { room: r.code, words: r.words, diff: r.diff, players: Object.values(r.players).map(p => p.name) });
   Object.values(r.players).forEach(p => p.score = 0);
   r.lvl = 'easy'; r.turn = 0; r.used = new Set(); Object.values(r.players).forEach(p => p.drawn = 0);
   nextTurn(r);
@@ -83,17 +86,27 @@ function endGame(r) {
   pub(r);
   const rank = Object.values(r.players).sort((a, b) => b.score - a.score).map(p => ({ name: p.name, score: p.score }));
   io.to(r.code).emit('gameOver', rank);
+  log('game_end', { room: r.code, words: r.words, rank });
 }
+
+app.get('/admin/logs', (req, res) => {          // /admin/logs?key=ADMIN_KEY&date=YYYY-MM-DD
+  const key = process.env.ADMIN_KEY; if (!key || req.query.key !== key) return res.status(404).end();
+  const d = /^\d{4}-\d{2}-\d{2}$/.test(req.query.date || '') ? req.query.date : new Date().toISOString().slice(0, 10);
+  const f = path.join(DIR, d + '.jsonl'); res.type('text/plain'); fs.existsSync(f) ? res.sendFile(f) : res.send('no logs for ' + d);
+});
 
 io.on('connection', s => {
   s.on('join', (d, cb) => {
     const name = clean(d.name, 16) || 'Player';
-    if (check(name)) return cb({ error: 'Please pick a kid-friendly name (no bad words, links or phone numbers).' });
+    if (!(d.adult === true && d.consent === true)) return cb({ error: 'Please confirm you are 18+ and accept the privacy notice.' });
+    if (blocked(name)) { log('join_rejected', { name, reason: 'name', ...clientInfo(s) }); return cb({ error: 'Please pick a different name (no links or phone numbers' + (process.env.RELAXED_FILTER === '1' ? '' : ', no bad words') + ').' }); }
     const code = clean(d.code, 4).toUpperCase() || code4();
     const r = rooms[code] || (rooms[code] = { code, players: {}, host: s.id, state: 'lobby', queue: [], words: 10, turn: 0, strokes: [], diff: 'adaptive', lvl: 'easy', used: new Set(), hintT: [] });
     if (Object.keys(r.players).length >= MAX) return cb({ error: `Room is full (max ${MAX} players).` });
     r.players[s.id] = { name, score: 0 }; s.join(code); s.data.code = code;
     cb({ ok: true, id: s.id, code });
+    const ci = clientInfo(s); Object.assign(s.data, { sid: newSid(), ip: ci.ip, t0: Date.now() });
+    log('join', { sid: s.data.sid, name, room: code, consent: { adult: true, notice: '2026-11' }, ...ci, tel: cleanTel(d.tel) });
     pub(r);
     if (r.state === 'drawing') {
       s.emit('turn', { drawer: r.drawer, hint: pattern(r), lvl: r.curDiff, ms: r.end - Date.now(), no: r.turn, total: r.words });
@@ -136,11 +149,13 @@ io.on('connection', s => {
     const r = rooms[s.data.code], p = r && r.players[s.id]; if (!p) return;
     const text = clean(raw, 60); if (!text) return;
     const now = Date.now(); if (now - (p.t || 0) < 700) return; p.t = now;   // slow-down for spam
-    if (check(text)) return s.emit('notice', 'Message blocked. Keep chat friendly: no bad words, links, or personal info.');
+    const bad = blocked(text); log('chat', { sid: s.data.sid, ip: s.data.ip, name: p.name, room: r.code, text, blocked: bad });
+    if (bad) return s.emit('notice', 'Message blocked. Keep chat friendly: no bad words, links, or personal info.');
     if (r.state === 'drawing' && s.id !== r.drawer && !r.guessed.has(s.id)) {
       if (text.toLowerCase() === r.word) {
         const pts = Math.round((100 + 400 * Math.max(0, (r.end - Date.now()) / (DRAW_SECS * 1000))) * MULT[r.curDiff]); // faster = more
         p.score += pts; r.players[r.drawer] && (r.players[r.drawer].score += 50);
+        log('guess_correct', { sid: s.data.sid, ip: s.data.ip, name: p.name, room: r.code, word: r.word, pts, lvl: r.curDiff });
         r.guessed.add(s.id); r.fr.push(Math.max(0, (r.end - Date.now()) / (DRAW_SECS * 1000)));
         io.to(r.code).emit('chat', { sys: true, text: `${p.name} guessed it! +${pts}` });
         pub(r);
@@ -157,6 +172,7 @@ io.on('connection', s => {
   });
   s.on('disconnect', () => {
     const r = rooms[s.data.code]; if (!r) return;
+    log('leave', { sid: s.data.sid, ip: s.data.ip, name: r.players[s.id] && r.players[s.id].name, room: r.code, secs: Math.round((Date.now() - (s.data.t0 || Date.now())) / 1000) });
     delete r.players[s.id];
     const ids = Object.keys(r.players);
     if (!ids.length) { clearTimeout(r.timer); clearHints(r); return delete rooms[r.code]; }

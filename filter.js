@@ -25,4 +25,7 @@ function check(text) {
   const leet = base.replace(/(?<=[a-z])!(?=[a-z])/g, 'i').replace(/[013457 8@$]/g, c => LEET[c] || c);
   return [base, leet].some(v => tokens(v).some(t => EXACT_RE.some(r => r.test(t)) || STRONG_RE.some(r => r.test(t))));
 }
-module.exports = { check };
+// links / emails / phone numbers only (used when RELAXED_FILTER=1 so adults can use strong language)
+const pii = text => { const raw = String(text);
+  return /https?:|www\.|\S@\S|\b[\w-]+\.(com|net|org|io|gg|ly|me|co|in|xyz|tv|app|ru)\b/i.test(raw) || raw.replace(/\D/g, '').length >= 7; };
+module.exports = { check, pii };

@@ -11,3 +11,11 @@ services:
     envVars:
       - key: NODE_VERSION
         value: "20"
+      - key: LOG_DAYS
+        value: "30"
+      - key: LOG_STDOUT        # also print logs to Render's log viewer (free disk is wiped on restart)
+        value: "1"
+      - key: ADMIN_KEY         # Render generates a secret; use it at /admin/logs?key=...
+        generateValue: true
+      # - key: RELAXED_FILTER  # set to "1" to allow adult language (links/phone numbers stay blocked)
+      #   value: "1"

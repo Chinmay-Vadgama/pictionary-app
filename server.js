@@ -89,6 +89,18 @@ function endGame(r) {
   log('game_end', { room: r.code, words: r.words, rank });
 }
 
+// Page-visit log: browser sends one beacon on page load (before Play). Skips bots/health checks that don't run JS.
+const hits = new Map(); setInterval(() => hits.clear(), 60000).unref();          // max 20 visit logs / IP / minute
+app.post('/visit', express.json({ limit: '4kb' }), (req, res) => {
+  const ci = clientInfo({ handshake: { headers: req.headers, address: req.socket.remoteAddress } });
+  const n = (hits.get(ci.ip) || 0) + 1; hits.set(ci.ip, n);
+  if (process.env.LOG_VISITS !== '0' && n <= 20) {
+    const b = req.body || {};
+    log('visit', { vid: /^[\w-]{8,40}$/.test(b.vid) ? b.vid : undefined, path: String(b.path || '').slice(0, 100), ...ci, tel: cleanTel(b.tel) });
+  }
+  res.status(204).end();
+});
+
 app.get('/admin/logs', (req, res) => {          // /admin/logs?key=ADMIN_KEY&date=YYYY-MM-DD
   const key = process.env.ADMIN_KEY; if (!key || req.query.key !== key) return res.status(404).end();
   const d = /^\d{4}-\d{2}-\d{2}$/.test(req.query.date || '') ? req.query.date : new Date().toISOString().slice(0, 10);
@@ -106,7 +118,7 @@ io.on('connection', s => {
     r.players[s.id] = { name, score: 0 }; s.join(code); s.data.code = code;
     cb({ ok: true, id: s.id, code });
     const ci = clientInfo(s); Object.assign(s.data, { sid: newSid(), ip: ci.ip, t0: Date.now() });
-    log('join', { sid: s.data.sid, name, room: code, consent: { adult: true, notice: '2026-11' }, ...ci, tel: cleanTel(d.tel) });
+    log('join', { vid: typeof d.vid === 'string' ? d.vid.slice(0, 40) : undefined, sid: s.data.sid, name, room: code, consent: { adult: true, notice: '2026-11' }, ...ci, tel: cleanTel(d.tel) });
     pub(r);
     if (r.state === 'drawing') {
       s.emit('turn', { drawer: r.drawer, hint: pattern(r), lvl: r.curDiff, ms: r.end - Date.now(), no: r.turn, total: r.words });

@@ -32,10 +32,10 @@ canvas{width:100%;aspect-ratio:4/3;background:#fff;border-radius:10px;border:2px
 #over{display:none;position:fixed;inset:0;background:rgba(10,12,20,.7);place-items:center;padding:12px}
 #over .card{max-width:420px;width:100%;text-align:center}#over ol{text-align:left}
 </style></head><body><div class="wrap">
-<div id="join" class="card"><h1>Sketchmob</h1><p>Draw it. Guess it. Faster guesses score more.</p><small>Adults only (18+). Links and phone numbers are blocked in chat.</small>
+<div id="join" class="card"><h1>Sketchmob</h1><p>Draw it. Guess it. Faster guesses score more.</p><small>Adults only (18+). Links and phone numbers are blocked in chat.<br> </small>
 <input id="name" placeholder="Your name" maxlength="16"><input id="code" placeholder="Room code (blank = new room)" maxlength="4">
 <label style="text-align:left;font-size:14px"><input type="checkbox" id="adult"> I am 18 or older</label>
-<label style="text-align:left;font-size:14px"><input type="checkbox" id="agree"> I agree to the <a href="/privacy.html" target="_blank">privacy notice</a>: my IP address, device/browser details, approximate location, gameplay and chat are logged.</label>
+<label style="text-align:left;font-size:14px"><input type="checkbox" id="agree"> I agree to the <a href="/privacy.html" target="_blank">privacy notice</a></label>
 <button class="p" id="go">Play</button><div id="err" style="color:#d33"></div>
 <div class="ad" id="ad-join">Ad slot</div></div>
 
@@ -111,7 +111,9 @@ const refreshTools=()=>T.style.visibility=canDraw()?'visible':'hidden';refreshTo
 document.addEventListener('keydown',e=>{if(e.ctrlKey&&e.key==='z'&&e.target.tagName!=='INPUT'){e.preventDefault();live()?s.emit('undo'):practice()&&undoLocal()}});
 const tel=()=>({tz:Intl.DateTimeFormat().resolvedOptions().timeZone,tzOffset:new Date().getTimezoneOffset(),lang:navigator.language,langs:navigator.languages,screen:[screen.width,screen.height,devicePixelRatio],viewport:[innerWidth,innerHeight],platform:navigator.platform,touch:navigator.maxTouchPoints,cores:navigator.hardwareConcurrency,mem:navigator.deviceMemory,net:navigator.connection&&navigator.connection.effectiveType,dark:matchMedia('(prefers-color-scheme: dark)').matches,ref:document.referrer});
 const gate=()=>$('go').disabled=!($('adult').checked&&$('agree').checked);$('adult').onchange=$('agree').onchange=gate;gate();
-$('go').onclick=()=>s.emit('join',{name:$('name').value,code:$('code').value,adult:$('adult').checked,consent:$('agree').checked,tel:tel()},r=>{
+let vid;try{vid=sessionStorage.vid||(sessionStorage.vid=crypto.randomUUID())}catch(e){}
+fetch('/visit',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({vid,path:location.pathname,tel:tel()}),keepalive:true}).catch(()=>{});
+$('go').onclick=()=>s.emit('join',{name:$('name').value,code:$('code').value,adult:$('adult').checked,consent:$('agree').checked,vid,tel:tel()},r=>{
  if(r.error)return $('err').textContent=r.error;me=r.id;$('rc').textContent=r.code;$('join').style.display='none';$('game').style.display='grid'});
 $('start').onclick=()=>s.emit('start');$('diff').onchange=e=>s.emit('setDiff',e.target.value);$('words').onchange=e=>s.emit('setWords',e.target.value);$('again').onclick=()=>s.emit('again');
 $('msg').onkeydown=e=>{if(e.key==='Enter'&&e.target.value.trim()){s.emit('chat',e.target.value);e.target.value=''}};

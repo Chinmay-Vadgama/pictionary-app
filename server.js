@@ -89,6 +89,7 @@ function endGame(r) {
   log('game_end', { room: r.code, words: r.words, rank });
 }
 
+app.get('/healthz', (req, res) => res.type('text/plain').send('ok'));   // cheap endpoint for keep-alive pings
 // Page-visit log: browser sends one beacon on page load (before Play). Skips bots/health checks that don't run JS.
 const hits = new Map(); setInterval(() => hits.clear(), 60000).unref();          // max 20 visit logs / IP / minute
 app.post('/visit', express.json({ limit: '4kb' }), (req, res) => {
